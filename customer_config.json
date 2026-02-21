@@ -1,0 +1,81 @@
+{
+  "customers": {
+    "customer-001-key-abc123xyz": {
+      "customer_id": "customer-001",
+      "customer_name": "Mustermann GmbH",
+      "active": true,
+      "allowed_actions": {
+        "analyze-document": {
+          "endpoint": "https://csit-brancontest-resource.services.ai.azure.com/api/projects/csit-brancontest",
+          "agent": "analyze-document",
+          "description": "Dokumentanalyse",
+          "vector_store_ids": []
+        },
+        "product-research": {
+          "endpoint": "https://csit-brancons-resource.services.ai.azure.com/api/projects/csit-brancons",
+          "agent": "csit-product-researcher",
+          "description": "Produktrecherche",
+          "vector_store_ids": []
+        }
+      }
+    },
+    "customer-002-key-def456uvw": {
+      "customer_id": "customer-002",
+      "customer_name": "Beispiel AG",
+      "active": true,
+      "allowed_actions": {
+        "analyze-document": {
+          "endpoint": "https://csit-brancontest-resource.services.ai.azure.com/api/projects/csit-brancontest",
+          "agent": "analyze-document",
+          "description": "Dokumentanalyse",
+          "vector_store_ids": []
+        }
+      }
+    },
+    "demo-key-test123": {
+      "customer_id": "demo-customer",
+      "customer_name": "Demo Kunde",
+      "active": true,
+      "allowed_actions": {
+        "analyze-document": {
+          "endpoint": "https://csit-brancontest-resource.services.ai.azure.com/api/projects/csit-brancontest",
+          "agent": "analyze-document",
+          "description": "Dokumentanalyse (Demo)",
+          "vector_store_ids": []
+        }
+      }
+    },
+    "Brandconsulting-key-CVvJ9bLuo0hLxV5LT-yzCQ": {
+      "customer_id": "Brandconsulting",
+      "customer_name": "BRANDCONSULT GmbH",
+      "active": true,
+      "allowed_actions": {
+        "analyze-document": {
+          "endpoint": "https://csit-brancons-resource.services.ai.azure.com/api/projects/csit-brancons",
+          "agent": "csit-product-researcher",
+          "description": "Analyse Versicherungsdokumente",
+          "vector_store_ids": []
+        }
+      }
+    },
+    "Fameline-key-tAemhC35OgAJa-0IiOMo7w": {
+      "customer_id": "Fameline",
+      "customer_name": "Fameline",
+      "active": true,
+      "allowed_actions": {
+        "analyze-rfqs": {
+          "endpoint": "https://ai-officemate.services.ai.azure.com/api/projects/proj-officemate",
+          "agent": "analyze-rfq-document",
+          "description": "Aktion: analyze-rfqs",
+          "vector_store_ids": ["Index_silly_carnival_lpgs1qbv8"]
+        },
+        "analyze-quotation": {
+          "endpoint": "https://ai-officemate.services.ai.azure.com/api/projects/proj-officemate",
+          "agent": "analyze-quotation",
+          "description": "Aktion: analyze-quotation",
+          "vector_store_ids": []
+        }
+      }
+    }
+  }
+}
