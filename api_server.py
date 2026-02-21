@@ -508,8 +508,13 @@ def get_clients(endpoint: str, force_refresh: bool = False):
             if force_refresh or endpoint not in _client_cache:
                 logger.info(f"Erstelle Clients für Endpoint: {endpoint}{' (refresh)' if force_refresh else ' (einmalig)'}...")
                 credential = get_credential()
+                import httpx
                 project_client = AIProjectClient(endpoint=endpoint, credential=credential)
                 openai_client = project_client.get_openai_client()
+                # Kürzerer Connect-Timeout damit stale Connections schnell erkannt werden
+                # Read-Timeout bleibt hoch (600s) für lange Agent-Aufrufe
+                openai_client.timeout = httpx.Timeout(600.0, connect=10.0)
+                openai_client.max_retries = 0  # Wir machen Retries selbst (mit Cache-Invalidierung)
                 _client_cache[endpoint] = {
                     "project_client": project_client,
                     "openai_client": openai_client
