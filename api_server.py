@@ -501,12 +501,12 @@ def get_credential():
         logger.info("✓ DefaultAzureCredential erstellt")
     return _credential
 
-def get_clients(endpoint: str):
+def get_clients(endpoint: str, force_refresh: bool = False):
     """Gibt gecachte AIProjectClient und OpenAI-Client für einen Endpoint zurück"""
-    if endpoint not in _client_cache:
+    if force_refresh or endpoint not in _client_cache:
         with _cache_lock:
-            if endpoint not in _client_cache:
-                logger.info(f"Erstelle Clients für Endpoint: {endpoint} (einmalig)...")
+            if force_refresh or endpoint not in _client_cache:
+                logger.info(f"Erstelle Clients für Endpoint: {endpoint}{' (refresh)' if force_refresh else ' (einmalig)'}...")
                 credential = get_credential()
                 project_client = AIProjectClient(endpoint=endpoint, credential=credential)
                 openai_client = project_client.get_openai_client()
@@ -516,6 +516,15 @@ def get_clients(endpoint: str):
                 }
                 logger.info(f"✓ Clients für {endpoint} erstellt und gecacht")
     return _client_cache[endpoint]["project_client"], _client_cache[endpoint]["openai_client"]
+
+def invalidate_clients(endpoint: str):
+    """Invalidiert den Client-Cache für einen Endpoint (bei Connection-Errors)"""
+    with _cache_lock:
+        _client_cache.pop(endpoint, None)
+        keys_to_remove = [k for k in _agent_cache if k[0] == endpoint]
+        for k in keys_to_remove:
+            _agent_cache.pop(k, None)
+    logger.info(f"Client-Cache invalidiert für {endpoint}")
 
 def get_agent(endpoint: str, agent_name: str):
     """Gibt gecachten Agent zurück"""
@@ -795,7 +804,7 @@ def analyze_document_internal(data: dict, request_id: str) -> dict:
                 content.append({"type": "input_text", "text": knowledge_context})
             content.append({"type": "input_text", "text": agent_text})
 
-        # Retry-Logic für Rate Limits
+        # Retry-Logic für Rate Limits und Connection-Errors
         t_agent_start = _time.time()
         max_retries = 3
         for attempt in range(max_retries):
@@ -810,13 +819,38 @@ def analyze_document_internal(data: dict, request_id: str) -> dict:
                 logger.info(f"[{request_id}] Gesamtdauer bisher: {t_agent_end - t_start:.1f}s")
                 break
             except Exception as api_error:
-                if "429" in str(api_error) or "Too Many Requests" in str(api_error):
+                error_str = str(api_error)
+                if "429" in error_str or "Too Many Requests" in error_str:
                     if attempt < max_retries - 1:
                         wait_time = 5 * (attempt + 1)
                         logger.warning(f"[{request_id}] Rate Limit, warte {wait_time}s...")
                         sleep(wait_time)
                     else:
                         raise Exception("Azure OpenAI Rate Limit erreicht") from api_error
+                elif "Connection" in error_str or "disconnected" in error_str or "RemoteProtocolError" in error_str:
+                    if attempt < max_retries - 1:
+                        logger.warning(f"[{request_id}] Connection-Error (Versuch {attempt+1}/{max_retries}), erstelle neuen Client...")
+                        invalidate_clients(endpoint)
+                        _, openai_client = get_clients(endpoint)
+                        agent = get_agent(endpoint, agent_name)
+                        # Dateien neu hochladen (alte file_ids sind an den alten Client gebunden)
+                        if uploaded_files:
+                            logger.info(f"[{request_id}] Lade Dateien erneut hoch...")
+                            uploaded_files.clear()
+                            for temp_path in temp_file_paths:
+                                with open(temp_path, "rb") as f:
+                                    file = openai_client.files.create(file=f, purpose="assistants")
+                                    uploaded_files.append(file)
+                            # Content mit neuen file_ids aktualisieren
+                            content = []
+                            for file in uploaded_files:
+                                content.append({"type": "input_file", "file_id": file.id})
+                            if knowledge_context:
+                                content.append({"type": "input_text", "text": knowledge_context})
+                            content.append({"type": "input_text", "text": agent_text})
+                        sleep(2)
+                    else:
+                        raise
                 else:
                     raise
         
