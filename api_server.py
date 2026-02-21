@@ -486,6 +486,49 @@ DEFAULT_AGENT = "analyze-document"
 # Azure AI Projects SDK unterstützt nur TokenCredential (nicht AzureKeyCredential)
 logger.info("✓ Azure AI Authentifizierung: Managed Identity (DefaultAzureCredential)")
 
+# Globaler Credential & Client-Cache (einmalig erstellt, wiederverwendet pro Request)
+_credential = None
+_client_cache = {}  # key: endpoint -> {"project_client": ..., "openai_client": ...}
+_agent_cache = {}   # key: (endpoint, agent_name) -> agent object
+_cache_lock = threading.Lock()
+
+def get_credential():
+    """Gibt die gecachte DefaultAzureCredential zurück (einmalig erstellt)"""
+    global _credential
+    if _credential is None:
+        logger.info("Erstelle DefaultAzureCredential (einmalig)...")
+        _credential = DefaultAzureCredential()
+        logger.info("✓ DefaultAzureCredential erstellt")
+    return _credential
+
+def get_clients(endpoint: str):
+    """Gibt gecachte AIProjectClient und OpenAI-Client für einen Endpoint zurück"""
+    if endpoint not in _client_cache:
+        with _cache_lock:
+            if endpoint not in _client_cache:
+                logger.info(f"Erstelle Clients für Endpoint: {endpoint} (einmalig)...")
+                credential = get_credential()
+                project_client = AIProjectClient(endpoint=endpoint, credential=credential)
+                openai_client = project_client.get_openai_client()
+                _client_cache[endpoint] = {
+                    "project_client": project_client,
+                    "openai_client": openai_client
+                }
+                logger.info(f"✓ Clients für {endpoint} erstellt und gecacht")
+    return _client_cache[endpoint]["project_client"], _client_cache[endpoint]["openai_client"]
+
+def get_agent(endpoint: str, agent_name: str):
+    """Gibt gecachten Agent zurück"""
+    cache_key = (endpoint, agent_name)
+    if cache_key not in _agent_cache:
+        with _cache_lock:
+            if cache_key not in _agent_cache:
+                logger.info(f"Lade Agent '{agent_name}' (einmalig)...")
+                project_client, _ = get_clients(endpoint)
+                _agent_cache[cache_key] = project_client.agents.get(agent_name=agent_name)
+                logger.info(f"✓ Agent '{agent_name}' geladen und gecacht")
+    return _agent_cache[cache_key]
+
 # Timeout-Konfiguration
 # WICHTIG: Der Azure OpenAI Agent kann bei großen/komplexen Dateien mehrere Minuten benötigen
 # Wenn Ihre Clients in einen Timeout laufen, erhöhen Sie den Timeout auf Client-Seite
@@ -690,13 +733,15 @@ def analyze_document_internal(data: dict, request_id: str) -> dict:
             processed_file_sizes.append(original_file_size)  # Originalgröße speichern
             logger.info(f"[{request_id}] Temporäre Datei: {temp_file_path}")
         
-        # Azure AI Client
-        credential = DefaultAzureCredential()
-        project_client = AIProjectClient(endpoint=endpoint, credential=credential)
-        agent = project_client.agents.get(agent_name=agent_name)
-        openai_client = project_client.get_openai_client()
-        logger.info(f"[{request_id}] Client initialisiert, Agent: {agent.name}")
-        
+        # Azure AI Client (gecacht - kein erneutes Token-Holen/Client-Erstellen)
+        import time as _time
+        t_start = _time.time()
+
+        _, openai_client = get_clients(endpoint)
+        agent = get_agent(endpoint, agent_name)
+        t_client = _time.time()
+        logger.info(f"[{request_id}] Client+Agent in {t_client - t_start:.1f}s (gecacht)")
+
         # Dateien hochladen
         if temp_file_paths:
             logger.info(f"[{request_id}] Lade {len(temp_file_paths)} Datei(en) zu Azure hoch...")
@@ -705,6 +750,8 @@ def analyze_document_internal(data: dict, request_id: str) -> dict:
                     file = openai_client.files.create(file=f, purpose="assistants")
                     uploaded_files.append(file)
                     logger.info(f"[{request_id}] Datei hochgeladen: {file.id}")
+            t_upload = _time.time()
+            logger.info(f"[{request_id}] Upload in {t_upload - t_client:.1f}s")
         
         # Agent-Anfrage
         logger.info(f"[{request_id}] Sende Anfrage an Agent...")
@@ -749,6 +796,7 @@ def analyze_document_internal(data: dict, request_id: str) -> dict:
             content.append({"type": "input_text", "text": agent_text})
 
         # Retry-Logic für Rate Limits
+        t_agent_start = _time.time()
         max_retries = 3
         for attempt in range(max_retries):
             try:
@@ -757,7 +805,9 @@ def analyze_document_internal(data: dict, request_id: str) -> dict:
                     "extra_body": {"agent": {"name": agent.name, "type": "agent_reference"}},
                 }
                 response = openai_client.responses.create(**request_kwargs)
-                logger.info(f"[{request_id}] Agent-Antwort erhalten")
+                t_agent_end = _time.time()
+                logger.info(f"[{request_id}] Agent-Antwort in {t_agent_end - t_agent_start:.1f}s")
+                logger.info(f"[{request_id}] Gesamtdauer bisher: {t_agent_end - t_start:.1f}s")
                 break
             except Exception as api_error:
                 if "429" in str(api_error) or "Too Many Requests" in str(api_error):
