@@ -446,10 +446,16 @@ def cleanup_old_jobs():
         pass
 
 def process_async_job(task_id: str, data: dict):
-    """Verarbeitet einen Job im Hintergrund"""
+    """Verarbeitet einen Job im Hintergrund (läuft in eigenem Prozess)"""
     try:
+        # Cache leeren: Child-Prozess erbt Sockets vom Parent die hier ungültig sind
+        global _credential, _client_cache, _agent_cache
+        _credential = None
+        _client_cache = {}
+        _agent_cache = {}
+
         update_job(task_id, status='processing', started_at=datetime.now().isoformat(), progress=10)
-        
+
         # Führe die Analyse durch (gleiche Logik wie synchroner Endpoint)
         result = analyze_document_internal(data, task_id)
         
