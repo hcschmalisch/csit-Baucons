@@ -1050,14 +1050,25 @@ def analyze_file_async():
         create_job(task_id)
         logger.info(f"[{request_id}] Task erstellt: {task_id}")
         
-        # Starte Background-Prozess (eigene GIL, kein Konkurrenzkampf mit Request-Handling)
-        process = multiprocessing.Process(
-            target=process_async_job,
-            args=(task_id, data),
-            daemon=True
-        )
-        process.start()
-        logger.info(f"[{task_id}] Background-Prozess gestartet")
+        # Windows: Thread (spawn-basiertes multiprocessing verursacht Connection-Probleme)
+        # Linux/Azure: Eigener Prozess (eigene GIL, kein Konkurrenzkampf mit Request-Handling)
+        import platform
+        if platform.system() == 'Windows':
+            thread = threading.Thread(
+                target=process_async_job,
+                args=(task_id, data),
+                daemon=True
+            )
+            thread.start()
+            logger.info(f"[{task_id}] Background-Thread gestartet (Windows)")
+        else:
+            process = multiprocessing.Process(
+                target=process_async_job,
+                args=(task_id, data),
+                daemon=True
+            )
+            process.start()
+            logger.info(f"[{task_id}] Background-Prozess gestartet (Linux)")
         
         # Cleanup alte Jobs
         cleanup_old_jobs()
