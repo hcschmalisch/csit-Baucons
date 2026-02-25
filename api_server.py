@@ -313,67 +313,179 @@ def convert_docx_to_pdf(docx_content, request_id):
 
 def convert_xlsx_to_pdf(xlsx_content, original_filename, request_id):
     """
-    Konvertiert XLSX zu PDF mit openpyxl und reportlab
+    Konvertiert XLSX zu PDF mit openpyxl und reportlab.
+    Unterstützt Merged Cells, Spaltenbreiten, dynamische Font-Größe und Textumbruch.
     """
     try:
         from openpyxl import load_workbook
+        from openpyxl.utils import get_column_letter
         from reportlab.lib.pagesizes import A4, landscape
         from reportlab.lib import colors
         from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, PageBreak, Paragraph, Spacer
-        from reportlab.lib.styles import getSampleStyleSheet
-        from reportlab.lib.units import inch
-        
-        # XLSX laden
+        from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+        from reportlab.lib.units import inch, mm
+
         wb = load_workbook(BytesIO(xlsx_content), data_only=True)
-        
-        # PDF erstellen
+
         pdf_buffer = BytesIO()
-        pdf_doc = SimpleDocTemplate(pdf_buffer, pagesize=landscape(A4))
+        page_w, page_h = landscape(A4)
+        margin = 15 * mm
+        usable_w = page_w - 2 * margin
+        pdf_doc = SimpleDocTemplate(pdf_buffer, pagesize=landscape(A4),
+                                    leftMargin=margin, rightMargin=margin,
+                                    topMargin=margin, bottomMargin=margin)
         story = []
         styles = getSampleStyleSheet()
-        
-        # Durchlaufe alle Sheets
+
         for sheet_name in wb.sheetnames:
             ws = wb[sheet_name]
-            
+
+            # --- Merged Cells erfassen (nur Wert in die erste Zelle, Rest leer) ---
+            merged_first_cells = {}  # (row, col) -> value (nur linke obere Zelle)
+            merged_skip_cells = set()  # Alle anderen Zellen im Merge-Bereich
+            for merged_range in list(ws.merged_cells.ranges):
+                mc_min_col, mc_min_row, mc_max_col, mc_max_row = merged_range.bounds
+                top_left_value = ws.cell(row=mc_min_row, column=mc_min_col).value
+                merged_first_cells[(mc_min_row, mc_min_col)] = top_left_value
+                for r in range(mc_min_row, mc_max_row + 1):
+                    for c in range(mc_min_col, mc_max_col + 1):
+                        if (r, c) != (mc_min_row, mc_min_col):
+                            merged_skip_cells.add((r, c))
+
+            # --- Zellenwerte lesen ---
+            min_row = ws.min_row or 1
+            max_row = ws.max_row or 1
+            min_col = ws.min_column or 1
+            max_col = ws.max_column or 1
+
+            raw_data = []
+            for r in range(min_row, max_row + 1):
+                row_vals = []
+                for c in range(min_col, max_col + 1):
+                    if (r, c) in merged_skip_cells:
+                        row_vals.append('')
+                    elif (r, c) in merged_first_cells:
+                        val = merged_first_cells[(r, c)]
+                        row_vals.append(str(val) if val is not None else '')
+                    else:
+                        val = ws.cell(row=r, column=c).value
+                        row_vals.append(str(val) if val is not None else '')
+                raw_data.append(row_vals)
+
+            if not raw_data:
+                continue
+
+            # --- Spalten mit tatsächlichen Daten identifizieren ---
+            # Zähle pro Spalte wie viele Zeilen Daten haben (Merged-Header zählen nur 1x)
+            num_cols = len(raw_data[0]) if raw_data else 0
+            col_data_count = [0] * num_cols
+            for row in raw_data:
+                for ci, val in enumerate(row):
+                    if val.strip():
+                        col_data_count[ci] += 1
+
+            # Behalte nur Spalten die in mindestens 2 Zeilen Daten haben
+            # (filtert einzelne Merged-Header-Zellen die über viele Spalten gehen)
+            keep_cols = [i for i, cnt in enumerate(col_data_count) if cnt >= 2]
+            if not keep_cols:
+                # Fallback: alle Spalten mit min. 1 Datenpunkt
+                keep_cols = [i for i, cnt in enumerate(col_data_count) if cnt >= 1]
+            if not keep_cols:
+                continue
+
+            filtered_data = []
+            for row in raw_data:
+                new_row = [row[i] for i in keep_cols]
+                if any(v.strip() for v in new_row):
+                    filtered_data.append(new_row)
+
+            if not filtered_data:
+                continue
+
+            # --- Spaltenbreiten aus XLSX übernehmen ---
+            col_widths_raw = []
+            for orig_ci in keep_cols:
+                col_letter = get_column_letter(min_col + orig_ci)
+                dim = ws.column_dimensions.get(col_letter)
+                w = dim.width if dim and dim.width else 10
+                col_widths_raw.append(max(w, 3))
+
+            total_raw = sum(col_widths_raw)
+            col_widths = [(w / total_raw) * usable_w for w in col_widths_raw]
+
+            # --- Dynamische Font-Größe basierend auf Spaltenanzahl ---
+            num_visible_cols = len(keep_cols)
+            if num_visible_cols <= 4:
+                font_size = 9
+            elif num_visible_cols <= 7:
+                font_size = 8
+            else:
+                font_size = 7
+
+            cell_style = ParagraphStyle('CellStyle', parent=styles['Normal'],
+                                        fontSize=font_size, leading=font_size + 2)
+            header_style = ParagraphStyle('HeaderStyle', parent=styles['Normal'],
+                                          fontSize=font_size, leading=font_size + 2,
+                                          textColor=colors.white)
+
             # Sheet-Titel
-            story.append(Paragraph(f"<b>{sheet_name}</b>", styles['Heading1']))
-            story.append(Spacer(1, 0.2*inch))
-            
-            # Konvertiere Sheet zu Liste
+            story.append(Paragraph(f"<b>{sheet_name}</b>", styles['Heading2']))
+            story.append(Spacer(1, 3 * mm))
+
+            # --- Tabellendaten mit Paragraph (Textumbruch) ---
             table_data = []
-            for row in ws.iter_rows(values_only=True):
-                # Konvertiere None zu leerem String
-                row_data = [str(cell) if cell is not None else '' for cell in row]
-                table_data.append(row_data)
-            
-            if table_data:
-                # Erstelle Tabelle (limitiere auf erste 100 Zeilen für Performance)
-                max_rows = min(len(table_data), 100)
-                t = Table(table_data[:max_rows])
-                
-                # Style
-                t.setStyle(TableStyle([
-                    ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
-                    ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-                    ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
-                    ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-                    ('FONTSIZE', (0, 0), (-1, 0), 10),
-                    ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
-                    ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
-                    ('GRID', (0, 0), (-1, -1), 1, colors.black)
-                ]))
-                
-                story.append(t)
-                
-                if len(table_data) > max_rows:
-                    story.append(Spacer(1, 0.2*inch))
-                    story.append(Paragraph(f"<i>... ({len(table_data) - max_rows} weitere Zeilen)</i>", styles['Normal']))
-            
+            for row in filtered_data[:150]:
+                para_row = [Paragraph(v.replace('&', '&amp;').replace('<', '&lt;'), cell_style)
+                            for v in row]
+                table_data.append(para_row)
+
+            if not table_data:
+                continue
+
+            t = Table(table_data, colWidths=col_widths, repeatRows=1)
+
+            # --- Header-Zeile erkennen (erste Zeile mit vielen gefüllten Zellen) ---
+            header_row_idx = 0
+            for ri, row in enumerate(filtered_data[:10]):
+                filled = sum(1 for v in row if v.strip())
+                if filled >= num_visible_cols * 0.6:
+                    header_row_idx = ri
+                    # Header-Zellen mit header_style neu erstellen
+                    table_data[ri] = [Paragraph(v.replace('&', '&amp;').replace('<', '&lt;'), header_style)
+                                      for v in filtered_data[ri]]
+                    break
+
+            # --- Styling ---
+            style_cmds = [
+                ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+                ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+                ('FONTSIZE', (0, 0), (-1, -1), font_size),
+                ('TOPPADDING', (0, 0), (-1, -1), 2),
+                ('BOTTOMPADDING', (0, 0), (-1, -1), 2),
+                ('LEFTPADDING', (0, 0), (-1, -1), 3),
+                ('RIGHTPADDING', (0, 0), (-1, -1), 3),
+                ('GRID', (0, 0), (-1, -1), 0.5, colors.Color(0.6, 0.6, 0.6)),
+                # Header-Zeile
+                ('BACKGROUND', (0, header_row_idx), (-1, header_row_idx), colors.Color(0.3, 0.3, 0.3)),
+                ('TEXTCOLOR', (0, header_row_idx), (-1, header_row_idx), colors.whitesmoke),
+            ]
+
+            # Alternierende Zeilenfarben (nach Header)
+            for ri in range(header_row_idx + 1, len(table_data)):
+                if (ri - header_row_idx) % 2 == 0:
+                    style_cmds.append(('BACKGROUND', (0, ri), (-1, ri), colors.Color(0.95, 0.95, 0.95)))
+
+            t.setStyle(TableStyle(style_cmds))
+            story.append(t)
+
+            if len(filtered_data) > 150:
+                story.append(Spacer(1, 3 * mm))
+                story.append(Paragraph(f"<i>... ({len(filtered_data) - 150} weitere Zeilen)</i>", styles['Normal']))
+
             story.append(PageBreak())
-        
+
         pdf_doc.build(story)
-        logger.info(f"[{request_id}] XLSX erfolgreich zu PDF konvertiert")
+        logger.info(f"[{request_id}] XLSX erfolgreich zu PDF konvertiert ({len(wb.sheetnames)} Sheets)")
         return pdf_buffer.getvalue()
     except Exception as e:
         logger.error(f"[{request_id}] XLSX Konvertierung fehlgeschlagen: {e}")
@@ -741,7 +853,17 @@ def analyze_document_internal(data: dict, request_id: str) -> dict:
             if f_extension in ['.docx', '.xlsx']:
                 logger.info(f"[{request_id}] Konvertiere {f_name} ({f_extension}) zu PDF...")
                 f_content = convert_to_pdf(f_content, f_extension, f_name, request_id)
-                f_name = os.path.splitext(f_name)[0] + '.pdf'
+                pdf_name = os.path.splitext(f_name)[0] + '.pdf'
+                # Lokal: Konvertierte PDF in testdocs speichern
+                import platform
+                if platform.system() == 'Windows':
+                    testdocs_dir = os.path.join(os.path.dirname(__file__), 'testdocs')
+                    if os.path.isdir(testdocs_dir):
+                        save_path = os.path.join(testdocs_dir, os.path.basename(pdf_name))
+                        with open(save_path, 'wb') as pf:
+                            pf.write(f_content)
+                        logger.info(f"[{request_id}] Konvertierte PDF gespeichert: {save_path}")
+                f_name = pdf_name
                 f_extension = '.pdf'
             
             # Temporäre Datei erstellen
