@@ -866,6 +866,28 @@ def analyze_document_internal(data: dict, request_id: str) -> dict:
                 f_name = pdf_name
                 f_extension = '.pdf'
             
+            # PDF-Formularfelder extrahieren (werden von Azure Files API nicht gelesen)
+            if f_extension == '.pdf':
+                try:
+                    import PyPDF2
+                    pdf_reader = PyPDF2.PdfReader(BytesIO(f_content))
+                    fields = pdf_reader.get_fields()
+                    if fields:
+                        form_data = []
+                        for field_name, field_obj in fields.items():
+                            value = field_obj.get('/V', '')
+                            if value and isinstance(value, str) and value.strip():
+                                form_data.append(f"{field_name}: {value}")
+                        if form_data:
+                            form_text = f"\n\nFORMULARFELDER aus {f_name}:\n" + "\n".join(form_data)
+                            if not user_text:
+                                user_text = form_text
+                            else:
+                                user_text = user_text + form_text
+                            logger.info(f"[{request_id}] {len(form_data)} Formularfelder aus {f_name} extrahiert")
+                except Exception as form_err:
+                    logger.warning(f"[{request_id}] Formularfeld-Extraktion fehlgeschlagen: {form_err}")
+
             # Temporäre Datei erstellen
             with tempfile.NamedTemporaryFile(delete=False, suffix=f_extension) as temp_file:
                 temp_file.write(f_content)

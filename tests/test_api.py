@@ -53,7 +53,7 @@ FILES = [
 ]
 
 # Optional: Zusätzlicher Text für den Agenten (kann plain-text oder HTML sein)
-USER_TEXT = "Wer ist der Rechnungsempfaenger fuer diesen BVV?"
+USER_TEXT = "Wer ist der Auftraggeber. Bitte gebe Vorname, Name, Adresse und E-Mail als json zurück"
 # USER_TEXT = "<h1>Analyse-Anfrage</h1><p>Bitte analysiere das Dokument und extrahiere alle Mengen.</p>"  # HTML-Beispiel
 # USER_TEXT = "Erkläre mir den Pythagoras-Satz."  # Für text_only Modus
 

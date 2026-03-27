@@ -1,4 +1,23 @@
+# Azure AI Dependencies
 azure-ai-projects~=2.0.0b1
+azure-ai-agents~=1.1.0
 azure-identity~=1.20.0
-ansible-core~=2.17.0
+
+# Core Dependencies
+flask~=3.0.0
 openai~=2.0.1
+requests
+filelock~=3.13.0
+
+# Document Conversion
+python-docx~=1.1.0
+openpyxl~=3.1.2
+reportlab~=4.0.0
+Pillow~=10.2.0
+PyPDF2~=3.0.0
+
+# Production Server
+gunicorn~=21.2.0
+
+# Optional (nur für Development)
+# ansible-core~=2.17.0
