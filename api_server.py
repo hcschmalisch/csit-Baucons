@@ -566,6 +566,9 @@ def process_async_job(task_id: str, data: dict):
         _client_cache = {}
         _agent_cache = {}
 
+        # Kundenkonfiguration im Child-Prozess neu laden (multiprocessing auf Linux)
+        load_customer_config()
+
         update_job(task_id, status='processing', started_at=datetime.now().isoformat(), progress=10)
 
         # Führe die Analyse durch (gleiche Logik wie synchroner Endpoint)
