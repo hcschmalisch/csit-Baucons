@@ -1,0 +1,893 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OfficeMate Admin - Kundenverwaltung</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        .header {
+            background: white;
+            padding: 30px;
+            border-radius: 15px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+            margin-bottom: 30px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .header h1 {
+            color: #667eea;
+            font-size: 28px;
+        }
+
+        .btn {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 600;
+            transition: all 0.3s ease;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .btn-primary {
+            background: #667eea;
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: #5568d3;
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+
+        .btn-success {
+            background: #10b981;
+            color: white;
+        }
+
+        .btn-success:hover {
+            background: #059669;
+        }
+
+        .btn-danger {
+            background: #ef4444;
+            color: white;
+        }
+
+        .btn-danger:hover {
+            background: #dc2626;
+        }
+
+        .btn-warning {
+            background: #f59e0b;
+            color: white;
+        }
+
+        .btn-warning:hover {
+            background: #d97706;
+        }
+
+        .btn-secondary {
+            background: #6b7280;
+            color: white;
+        }
+
+        .btn-secondary:hover {
+            background: #4b5563;
+        }
+
+        .btn-sm {
+            padding: 6px 12px;
+            font-size: 12px;
+        }
+
+        .customers-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(400px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+
+        .customer-card {
+            background: white;
+            border-radius: 15px;
+            padding: 25px;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+            transition: all 0.3s ease;
+        }
+
+        .customer-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+        }
+
+        .customer-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: start;
+            margin-bottom: 15px;
+            padding-bottom: 15px;
+            border-bottom: 2px solid #f3f4f6;
+        }
+
+        .customer-name {
+            font-size: 20px;
+            font-weight: 700;
+            color: #1f2937;
+        }
+
+        .customer-id {
+            font-size: 12px;
+            color: #6b7280;
+            margin-top: 4px;
+        }
+
+        .status-badge {
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        .status-active {
+            background: #d1fae5;
+            color: #065f46;
+        }
+
+        .status-inactive {
+            background: #fee2e2;
+            color: #991b1b;
+        }
+
+        .api-key-box {
+            background: #f9fafb;
+            padding: 12px;
+            border-radius: 8px;
+            margin: 15px 0;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            color: #374151;
+            word-break: break-all;
+            position: relative;
+        }
+
+        .copy-btn {
+            position: absolute;
+            right: 8px;
+            top: 8px;
+            padding: 4px 8px;
+            font-size: 11px;
+        }
+
+        .actions-list {
+            margin: 15px 0;
+        }
+
+        .action-item {
+            background: #f3f4f6;
+            padding: 10px;
+            border-radius: 6px;
+            margin-bottom: 8px;
+            font-size: 13px;
+        }
+
+        .action-name {
+            font-weight: 600;
+            color: #667eea;
+        }
+
+        .action-desc {
+            color: #6b7280;
+            font-size: 12px;
+        }
+
+        .card-actions {
+            display: flex;
+            gap: 8px;
+            margin-top: 15px;
+            padding-top: 15px;
+            border-top: 1px solid #e5e7eb;
+        }
+
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0,0,0,0.7);
+            z-index: 1000;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .modal.active {
+            display: flex;
+        }
+
+        .modal-content {
+            background: white;
+            border-radius: 15px;
+            padding: 30px;
+            max-width: 600px;
+            width: 90%;
+            max-height: 90vh;
+            overflow-y: auto;
+        }
+
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 25px;
+        }
+
+        .modal-title {
+            font-size: 24px;
+            font-weight: 700;
+            color: #1f2937;
+        }
+
+        .close-btn {
+            background: none;
+            border: none;
+            font-size: 28px;
+            color: #6b7280;
+            cursor: pointer;
+            padding: 0;
+            width: 32px;
+            height: 32px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 6px;
+        }
+
+        .close-btn:hover {
+            background: #f3f4f6;
+            color: #1f2937;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        .form-label {
+            display: block;
+            font-weight: 600;
+            color: #374151;
+            margin-bottom: 8px;
+            font-size: 14px;
+        }
+
+        .form-input {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e5e7eb;
+            border-radius: 8px;
+            font-size: 14px;
+            transition: border-color 0.3s ease;
+        }
+
+        .form-input:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .form-checkbox {
+            width: 20px;
+            height: 20px;
+            cursor: pointer;
+        }
+
+        .checkbox-label {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            cursor: pointer;
+        }
+
+        .actions-editor {
+            border: 2px solid #e5e7eb;
+            border-radius: 8px;
+            padding: 15px;
+            margin-top: 10px;
+        }
+
+        .action-editor-item {
+            background: #f9fafb;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 10px;
+            position: relative;
+        }
+
+        .remove-action-btn {
+            position: absolute;
+            right: 10px;
+            top: 10px;
+        }
+
+        .modal-footer {
+            display: flex;
+            gap: 10px;
+            margin-top: 25px;
+            padding-top: 20px;
+            border-top: 1px solid #e5e7eb;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            background: white;
+            border-radius: 15px;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+        }
+
+        .empty-state-icon {
+            font-size: 64px;
+            margin-bottom: 20px;
+        }
+
+        .empty-state-text {
+            font-size: 18px;
+            color: #6b7280;
+            margin-bottom: 20px;
+        }
+
+        .stats-bar {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+
+        .stat-card {
+            background: white;
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+        }
+
+        .stat-value {
+            font-size: 32px;
+            font-weight: 700;
+            color: #667eea;
+        }
+
+        .stat-label {
+            font-size: 14px;
+            color: #6b7280;
+            margin-top: 5px;
+        }
+
+        .alert {
+            padding: 15px 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .alert-success {
+            background: #d1fae5;
+            color: #065f46;
+        }
+
+        .alert-error {
+            background: #fee2e2;
+            color: #991b1b;
+        }
+
+        .alert-icon {
+            font-size: 24px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <div>
+                <h1>🎯 OfficeMate Admin</h1>
+                <p style="color: #6b7280; margin-top: 8px;">Kundenverwaltung & API-Keys</p>
+            </div>
+            <button class="btn btn-primary" onclick="openCreateModal()">
+                ➕ Neuer Kunde
+            </button>
+        </div>
+
+        <div id="alertContainer"></div>
+
+        <div class="stats-bar" id="statsBar">
+            <div class="stat-card">
+                <div class="stat-value" id="totalCustomers">0</div>
+                <div class="stat-label">Kunden gesamt</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="activeCustomers">0</div>
+                <div class="stat-label">Aktive Kunden</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="totalActions">0</div>
+                <div class="stat-label">Aktionen gesamt</div>
+            </div>
+        </div>
+
+        <div class="customers-grid" id="customersGrid">
+            <!-- Customers will be loaded here -->
+        </div>
+    </div>
+
+    <!-- Create/Edit Modal -->
+    <div class="modal" id="customerModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 class="modal-title" id="modalTitle">Neuer Kunde</h2>
+                <button class="close-btn" onclick="closeModal()">×</button>
+            </div>
+
+            <form id="customerForm" onsubmit="saveCustomer(event)">
+                <div class="form-group">
+                    <label class="form-label">Kunden-ID</label>
+                    <input type="text" class="form-input" id="customerId" required
+                           placeholder="z.B. Firmenname oder Kuerzel"
+                           oninput="onCustomerIdChanged()">
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">API-Key</label>
+                    <div style="display: flex; gap: 8px;">
+                        <input type="text" class="form-input" id="apiKey" required
+                               placeholder="Wird automatisch generiert" style="flex: 1;" readonly>
+                        <button type="button" class="btn btn-secondary btn-sm" onclick="regenerateApiKey()"
+                                id="regenerateBtn" title="Neuen Key generieren">
+                            🔄
+                        </button>
+                    </div>
+                    <small style="color: #6b7280; display: block; margin-top: 5px;">
+                        Wird automatisch aus Kunden-ID + Zufallsstring erzeugt
+                    </small>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">Kundenname</label>
+                    <input type="text" class="form-input" id="customerName" required 
+                           placeholder="z.B. Mustermann GmbH">
+                </div>
+
+                <div class="form-group">
+                    <label class="checkbox-label">
+                        <input type="checkbox" class="form-checkbox" id="active" checked>
+                        <span class="form-label" style="margin: 0;">Kunde ist aktiv</span>
+                    </label>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">Erlaubte Aktionen</label>
+                    <div class="actions-editor" id="actionsEditor">
+                        <!-- Actions will be added here -->
+                    </div>
+                    <button type="button" class="btn btn-secondary btn-sm" 
+                            onclick="addActionField()" style="margin-top: 10px;">
+                        ➕ Aktion hinzufügen
+                    </button>
+                </div>
+
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" onclick="closeModal()">
+                        Abbrechen
+                    </button>
+                    <button type="submit" class="btn btn-success">
+                        💾 Speichern
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        let customers = {};
+        let editingKey = null;
+
+        // Standard-Aktionen die bei Neuanlage vorgeschlagen werden
+        const DEFAULT_ACTIONS = [
+            {
+                key: 'analyze-document',
+                description: 'Dokumentanalyse',
+                endpoint: 'https://ai-officemate.services.ai.azure.com/api/projects/proj-officemate',
+                agent: 'analyze-document'
+            },
+            {
+                key: 'analyze-rfqs',
+                description: 'Angebotsanfragen analysieren',
+                endpoint: 'https://ai-officemate.services.ai.azure.com/api/projects/proj-officemate',
+                agent: 'analyze-rfq-document'
+            },
+            {
+                key: 'analyze-quotation',
+                description: 'Angebote analysieren',
+                endpoint: 'https://ai-officemate.services.ai.azure.com/api/projects/proj-officemate',
+                agent: 'analyze-quotation'
+            },
+            {
+                key: 'get-bvv-rechnungsempfaenger',
+                description: 'BVV Rechnungsempfänger ermitteln',
+                endpoint: 'https://ai-officemate.services.ai.azure.com/api/projects/proj-officemate',
+                agent: 'getBVV-Rechnungsmpfaenger'
+            }
+        ];
+
+        // Zufälligen API-Key generieren aus KundenID + Zufallsstring
+        function generateApiKey(customerId) {
+            if (!customerId) return '';
+            const randomBytes = new Uint8Array(16);
+            crypto.getRandomValues(randomBytes);
+            const randomStr = btoa(String.fromCharCode(...randomBytes))
+                .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+                .substring(0, 22);
+            return `${customerId}-key-${randomStr}`;
+        }
+
+        function onCustomerIdChanged() {
+            if (editingKey) return; // Beim Bearbeiten nicht ändern
+            const customerId = document.getElementById('customerId').value.trim();
+            if (customerId) {
+                document.getElementById('apiKey').value = generateApiKey(customerId);
+            } else {
+                document.getElementById('apiKey').value = '';
+            }
+        }
+
+        function regenerateApiKey() {
+            const customerId = document.getElementById('customerId').value.trim();
+            if (!customerId) {
+                showAlert('Bitte zuerst eine Kunden-ID eingeben', 'error');
+                return;
+            }
+            document.getElementById('apiKey').value = generateApiKey(customerId);
+        }
+
+        // Load customers from server
+        async function loadCustomers() {
+            try {
+                const response = await fetch('/admin/customers');
+                const data = await response.json();
+                customers = data.customers || {};
+                renderCustomers();
+                updateStats();
+            } catch (error) {
+                showAlert('Fehler beim Laden der Kunden: ' + error.message, 'error');
+            }
+        }
+
+        // Render customers grid
+        function renderCustomers() {
+            const grid = document.getElementById('customersGrid');
+            
+            if (Object.keys(customers).length === 0) {
+                grid.innerHTML = `
+                    <div class="empty-state">
+                        <div class="empty-state-icon">📋</div>
+                        <div class="empty-state-text">Noch keine Kunden angelegt</div>
+                        <button class="btn btn-primary" onclick="openCreateModal()">
+                            ➕ Ersten Kunden anlegen
+                        </button>
+                    </div>
+                `;
+                return;
+            }
+
+            grid.innerHTML = Object.entries(customers).map(([apiKey, customer]) => `
+                <div class="customer-card">
+                    <div class="customer-header">
+                        <div>
+                            <div class="customer-name">${escapeHtml(customer.customer_name)}</div>
+                            <div class="customer-id">ID: ${escapeHtml(customer.customer_id)}</div>
+                        </div>
+                        <span class="status-badge ${customer.active ? 'status-active' : 'status-inactive'}">
+                            ${customer.active ? '✓ Aktiv' : '✕ Inaktiv'}
+                        </span>
+                    </div>
+
+                    <div class="api-key-box">
+                        ${escapeHtml(apiKey)}
+                        <button class="btn btn-secondary btn-sm copy-btn" 
+                                onclick="copyToClipboard('${apiKey}')">
+                            📋 Kopieren
+                        </button>
+                    </div>
+
+                    <div class="actions-list">
+                        <strong style="font-size: 13px; color: #374151;">Erlaubte Aktionen:</strong>
+                        ${Object.entries(customer.allowed_actions || {}).map(([actionKey, action]) => `
+                            <div class="action-item">
+                                <div class="action-name">${escapeHtml(actionKey)}</div>
+                                <div class="action-desc">${escapeHtml(action.description || '-')}</div>
+                                <div style="font-size: 11px; color: #9ca3af; margin-top: 4px;">
+                                    Agent: ${escapeHtml(action.agent)}
+                                </div>
+                            </div>
+                        `).join('')}
+                    </div>
+
+                    <div class="card-actions">
+                        <button class="btn btn-warning btn-sm" 
+                                onclick="openEditModal('${apiKey}')">
+                            ✏️ Bearbeiten
+                        </button>
+                        <button class="btn btn-danger btn-sm" 
+                                onclick="deleteCustomer('${apiKey}')">
+                            🗑️ Löschen
+                        </button>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        // Update statistics
+        function updateStats() {
+            const total = Object.keys(customers).length;
+            const active = Object.values(customers).filter(c => c.active).length;
+            const totalActions = Object.values(customers).reduce((sum, c) => 
+                sum + Object.keys(c.allowed_actions || {}).length, 0
+            );
+
+            document.getElementById('totalCustomers').textContent = total;
+            document.getElementById('activeCustomers').textContent = active;
+            document.getElementById('totalActions').textContent = totalActions;
+        }
+
+        // Open create modal
+        function openCreateModal() {
+            editingKey = null;
+            document.getElementById('modalTitle').textContent = 'Neuer Kunde';
+            document.getElementById('customerForm').reset();
+            document.getElementById('apiKey').value = '';
+            document.getElementById('apiKey').readOnly = true;
+            document.getElementById('regenerateBtn').style.display = '';
+            document.getElementById('active').checked = true;
+            document.getElementById('actionsEditor').innerHTML = '';
+
+            // Standard-Aktionen vorschlagen
+            DEFAULT_ACTIONS.forEach(action => {
+                addActionField(action.key, {
+                    description: action.description,
+                    endpoint: action.endpoint,
+                    agent: action.agent
+                });
+            });
+
+            document.getElementById('customerModal').classList.add('active');
+        }
+
+        // Open edit modal
+        function openEditModal(apiKey) {
+            editingKey = apiKey;
+            const customer = customers[apiKey];
+
+            document.getElementById('modalTitle').textContent = 'Kunde bearbeiten';
+            document.getElementById('apiKey').value = apiKey;
+            document.getElementById('apiKey').readOnly = true;
+            document.getElementById('regenerateBtn').style.display = 'none';
+            document.getElementById('customerId').value = customer.customer_id;
+            document.getElementById('customerName').value = customer.customer_name;
+            document.getElementById('active').checked = customer.active;
+
+            // Load actions
+            const actionsEditor = document.getElementById('actionsEditor');
+            actionsEditor.innerHTML = '';
+            
+            Object.entries(customer.allowed_actions || {}).forEach(([actionKey, action]) => {
+                addActionField(actionKey, action);
+            });
+
+            document.getElementById('customerModal').classList.add('active');
+        }
+
+        // Close modal
+        function closeModal() {
+            document.getElementById('customerModal').classList.remove('active');
+            editingKey = null;
+        }
+
+        // Add action field
+        function addActionField(actionKey = '', action = {}) {
+            const actionsEditor = document.getElementById('actionsEditor');
+            const actionId = 'action_' + Date.now();
+            
+            const actionHtml = `
+                <div class="action-editor-item" id="${actionId}">
+                    <button type="button" class="btn btn-danger btn-sm remove-action-btn" 
+                            onclick="document.getElementById('${actionId}').remove()">
+                        ✕
+                    </button>
+                    
+                    <div class="form-group">
+                        <label class="form-label">Aktionsname</label>
+                        <input type="text" class="form-input action-key" 
+                               value="${escapeHtml(actionKey)}" 
+                               placeholder="z.B. analyze-document" required>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label">Beschreibung</label>
+                        <input type="text" class="form-input action-description" 
+                               value="${escapeHtml(action.description || '')}" 
+                               placeholder="z.B. Dokumentanalyse">
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label">Endpoint</label>
+                        <input type="text" class="form-input action-endpoint" 
+                               value="${escapeHtml(action.endpoint || '')}" 
+                               placeholder="https://..." required>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label">Agent</label>
+                        <input type="text" class="form-input action-agent" 
+                               value="${escapeHtml(action.agent || '')}" 
+                               placeholder="z.B. analyze-document" required>
+                    </div>
+                </div>
+            `;
+            
+            actionsEditor.insertAdjacentHTML('beforeend', actionHtml);
+        }
+
+        // Save customer
+        async function saveCustomer(event) {
+            event.preventDefault();
+
+            const apiKey = document.getElementById('apiKey').value.trim();
+            const customerId = document.getElementById('customerId').value.trim();
+            const customerName = document.getElementById('customerName').value.trim();
+            const active = document.getElementById('active').checked;
+
+            // Collect actions
+            const allowed_actions = {};
+            document.querySelectorAll('.action-editor-item').forEach(item => {
+                const key = item.querySelector('.action-key').value.trim();
+                const description = item.querySelector('.action-description').value.trim();
+                const endpoint = item.querySelector('.action-endpoint').value.trim();
+                const agent = item.querySelector('.action-agent').value.trim();
+
+                if (key && endpoint && agent) {
+                    allowed_actions[key] = {
+                        endpoint,
+                        agent,
+                        description
+                    };
+                }
+            });
+
+            const customerData = {
+                customer_id: customerId,
+                customer_name: customerName,
+                active,
+                allowed_actions
+            };
+
+            try {
+                const response = await fetch('/admin/customers', {
+                    method: editingKey ? 'PUT' : 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        api_key: apiKey,
+                        customer: customerData
+                    })
+                });
+
+                const result = await response.json();
+
+                if (response.ok) {
+                    showAlert(editingKey ? 'Kunde erfolgreich aktualisiert!' : 'Kunde erfolgreich angelegt!', 'success');
+                    closeModal();
+                    loadCustomers();
+                } else {
+                    showAlert('Fehler: ' + result.error, 'error');
+                }
+            } catch (error) {
+                showAlert('Fehler beim Speichern: ' + error.message, 'error');
+            }
+        }
+
+        // Delete customer
+        async function deleteCustomer(apiKey) {
+            if (!confirm(`Möchten Sie den Kunden "${customers[apiKey].customer_name}" wirklich löschen?`)) {
+                return;
+            }
+
+            try {
+                const response = await fetch('/admin/customers', {
+                    method: 'DELETE',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ api_key: apiKey })
+                });
+
+                const result = await response.json();
+
+                if (response.ok) {
+                    showAlert('Kunde erfolgreich gelöscht!', 'success');
+                    loadCustomers();
+                } else {
+                    showAlert('Fehler: ' + result.error, 'error');
+                }
+            } catch (error) {
+                showAlert('Fehler beim Löschen: ' + error.message, 'error');
+            }
+        }
+
+        // Copy to clipboard
+        function copyToClipboard(text) {
+            navigator.clipboard.writeText(text).then(() => {
+                showAlert('API-Key in Zwischenablage kopiert!', 'success');
+            });
+        }
+
+        // Show alert
+        function showAlert(message, type = 'success') {
+            const container = document.getElementById('alertContainer');
+            const alert = document.createElement('div');
+            alert.className = `alert alert-${type}`;
+            alert.innerHTML = `
+                <span class="alert-icon">${type === 'success' ? '✓' : '✕'}</span>
+                <span>${escapeHtml(message)}</span>
+            `;
+            container.appendChild(alert);
+
+            setTimeout(() => {
+                alert.style.opacity = '0';
+                setTimeout(() => alert.remove(), 300);
+            }, 3000);
+        }
+
+        // Escape HTML
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        // Close modal on escape key
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                closeModal();
+            }
+        });
+
+        // Load customers on page load
+        loadCustomers();
+    </script>
+</body>
+</html>

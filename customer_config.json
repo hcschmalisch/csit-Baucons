@@ -55,6 +55,12 @@
           "agent": "csit-product-researcher",
           "description": "Analyse Versicherungsdokumente",
           "vector_store_ids": []
+        },
+        "get-bvv-rechnungsempfaenger": {
+          "endpoint": "https://ai-officemate.services.ai.azure.com/api/projects/proj-officemate",
+          "agent": "getBVV-Rechnungsmpfaenger",
+          "description": "BVV Rechnungsempfänger ermitteln",
+          "vector_store_ids": []
         }
       }
     },
