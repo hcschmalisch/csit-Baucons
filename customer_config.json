@@ -64,6 +64,19 @@
         }
       }
     },
+    "Sozialagentur-OB-key-NAVTuamgcXXdSbuLG2U3lg": {
+      "customer_id": "Sozialagentur-OB",
+      "customer_name": "Sozialagentur Oberbayern",
+      "active": true,
+      "allowed_actions": {
+        "get-bvv-rechnungsempfaenger": {
+          "endpoint": "https://ai-officemate.services.ai.azure.com/api/projects/proj-officemate",
+          "agent": "getBVV-Rechnungsmpfaenger",
+          "description": "BVV Rechnungsempfänger ermitteln",
+          "vector_store_ids": []
+        }
+      }
+    },
     "Fameline-key-tAemhC35OgAJa-0IiOMo7w": {
       "customer_id": "Fameline",
       "customer_name": "Fameline",

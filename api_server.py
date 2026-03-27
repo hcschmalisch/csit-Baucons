@@ -762,7 +762,7 @@ def analyze_document_internal(data: dict, request_id: str) -> dict:
         api_key = data.get('api_key')
         action = data.get('action')
         user_text = data.get('user_text')
-        vector_store_ids = data.get('vector_store_ids') or data.get('vector_store_id')
+        vector_store_ids = data.get('vector_store_ids') or data.get('vector_store_id') or data.get('vectorstoreId') or data.get('vectorStoreId')
         
         # Vector Store IDs normalisieren
         if isinstance(vector_store_ids, str):
@@ -834,13 +834,20 @@ def analyze_document_internal(data: dict, request_id: str) -> dict:
         # Alle Dateien verarbeiten
         import re
         for idx, file_info in enumerate(files_array):
-            f_content_base64 = file_info.get('file_content', '')
+            f_content_raw = file_info.get('file_content', '')
             f_name = file_info.get('file_name', f'file_{idx}.bin')
-            
+
+            # Power Automate sendet file_content als Objekt: {"$content-type": "...", "$content": "base64..."}
+            if isinstance(f_content_raw, dict):
+                f_content_base64 = f_content_raw.get('$content', '')
+                logger.info(f"[{request_id}] Power Automate Format erkannt (content-type: {f_content_raw.get('$content-type', 'unbekannt')})")
+            else:
+                f_content_base64 = f_content_raw
+
             if not f_content_base64:
                 logger.warning(f"[{request_id}] Datei {idx+1} hat keinen Inhalt, überspringe")
                 continue
-            
+
             # Base64 dekodieren
             f_content_clean = f_content_base64.strip().replace('\n', '').replace('\r', '').replace(' ', '').replace('\t', '')
             valid_base64_chars = re.sub(r'[^A-Za-z0-9+/=]', '', f_content_clean)
