@@ -77,6 +77,19 @@
         }
       }
     },
+    "Factorship-hh-key-0KjBTzmKFS-tmvMpHg8WCQ": {
+      "customer_id": "Factorship-hh",
+      "customer_name": "Factorship Hamburg",
+      "active": true,
+      "allowed_actions": {
+        "analyze-rfqs": {
+          "endpoint": "https://ai-officemate.services.ai.azure.com/api/projects/proj-officemate",
+          "agent": "analyze-rfq-document",
+          "description": "Angebotsanfragen analysieren",
+          "vector_store_ids": ["Index_silly_carnival_lpgs1qbv8"]
+        }
+      }
+    },
     "Fameline-key-tAemhC35OgAJa-0IiOMo7w": {
       "customer_id": "Fameline",
       "customer_name": "Fameline",
