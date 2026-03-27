@@ -669,8 +669,40 @@ logger.info("⚠ HINWEIS: Azure Agent-Aufrufe können 1-5+ Minuten dauern")
 logger.info("⚠ Client sollte min. 10 Minuten Timeout haben")
 
 # Kundenkonfiguration laden
+# Auf Azure: /home/ ist persistent über Deployments hinweg
+# Lokal: Datei liegt im App-Verzeichnis
 CUSTOMER_CONFIG = {}
-CUSTOMER_CONFIG_FILE = os.path.join(os.path.dirname(__file__), 'customer_config.json')
+_BUNDLED_CONFIG_FILE = os.path.join(os.path.dirname(__file__), 'customer_config.json')
+_PERSISTENT_DIR = '/home/config' if os.path.isdir('/home') else os.path.dirname(__file__)
+CUSTOMER_CONFIG_FILE = os.path.join(_PERSISTENT_DIR, 'customer_config.json')
+
+def _init_persistent_config():
+    """Kopiert die mitgelieferte Config nach /home/config falls noch nicht vorhanden"""
+    if CUSTOMER_CONFIG_FILE == _BUNDLED_CONFIG_FILE:
+        return  # Lokal - kein Kopieren nötig
+    os.makedirs(_PERSISTENT_DIR, exist_ok=True)
+    if not os.path.exists(CUSTOMER_CONFIG_FILE):
+        # Erste Deployment: Bundled Config als Basis kopieren
+        import shutil
+        shutil.copy2(_BUNDLED_CONFIG_FILE, CUSTOMER_CONFIG_FILE)
+        logger.info(f"Initiale Config nach {CUSTOMER_CONFIG_FILE} kopiert")
+    else:
+        # Config existiert bereits - über Admin-UI gepflegte Version behalten
+        # Neue Kunden aus Bundled Config mergen (falls via Code hinzugefügt)
+        try:
+            with open(_BUNDLED_CONFIG_FILE, 'r', encoding='utf-8') as f:
+                bundled = json.load(f).get('customers', {})
+            with open(CUSTOMER_CONFIG_FILE, 'r', encoding='utf-8') as f:
+                persistent = json.load(f).get('customers', {})
+            new_keys = set(bundled.keys()) - set(persistent.keys())
+            if new_keys:
+                for key in new_keys:
+                    persistent[key] = bundled[key]
+                with open(CUSTOMER_CONFIG_FILE, 'w', encoding='utf-8') as f:
+                    json.dump({"customers": persistent}, f, indent=2, ensure_ascii=False)
+                logger.info(f"{len(new_keys)} neue Kunden aus Deployment gemergt: {new_keys}")
+        except Exception as e:
+            logger.warning(f"Config-Merge fehlgeschlagen: {e}")
 
 def load_customer_config():
     """Lädt die Kundenkonfiguration aus der JSON-Datei"""
@@ -682,15 +714,16 @@ def load_customer_config():
             CUSTOMER_CONFIG = config_data.get('customers', {})
             if CUSTOMER_CONFIG is None:
                 CUSTOMER_CONFIG = {}
-            logger.info(f"✓ Kundenkonfiguration geladen: {len(CUSTOMER_CONFIG)} Kunden")
+            logger.info(f"Kundenkonfiguration geladen: {len(CUSTOMER_CONFIG)} Kunden")
     except FileNotFoundError:
-        logger.error(f"❌ customer_config.json nicht gefunden: {CUSTOMER_CONFIG_FILE}")
-        logger.warning("⚠ Server läuft ohne Kundenauthentifizierung!")
+        logger.error(f"customer_config.json nicht gefunden: {CUSTOMER_CONFIG_FILE}")
+        logger.warning("Server läuft ohne Kundenauthentifizierung!")
     except Exception as e:
-        logger.error(f"❌ Fehler beim Laden der Kundenkonfiguration: {e}")
-        logger.warning("⚠ Server läuft ohne Kundenauthentifizierung!")
+        logger.error(f"Fehler beim Laden der Kundenkonfiguration: {e}")
+        logger.warning("Server läuft ohne Kundenauthentifizierung!")
 
-# Initial laden
+# Persistente Config initialisieren und laden
+_init_persistent_config()
 load_customer_config()
 
 def validate_customer_and_action(api_key, action):
