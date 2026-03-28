@@ -48,18 +48,81 @@ def require_auth(f):
     return decorated_function
 
 # ============================================
-# Usage Tracking für Abrechnung
+# Usage Tracking für Abrechnung (persistent, monatsbasiert)
 # ============================================
 
-USAGE_LOG_FILE = os.path.join(tempfile.gettempdir(), 'api_usage_log.json')
-USAGE_LOCK_FILE = USAGE_LOG_FILE + '.lock'
+# Persistenter Speicherort: /home/data/usage/ auf Azure, lokal im App-Verzeichnis
+_USAGE_BASE_DIR = '/home/data/usage' if os.path.isdir('/home') else os.path.join(os.path.dirname(__file__), 'usage_data')
+_OLD_USAGE_LOG_FILE = os.path.join(tempfile.gettempdir(), 'api_usage_log.json')
 
-def log_usage(customer_name: str, request_id: str, file_names: list, file_sizes: list, 
-              success: bool, tokens_input: int = 0, tokens_output: int = 0, 
-              action: str = None, error_message: str = None):
+def _get_usage_file(year_month: str) -> str:
+    """Gibt den Pfad zur monatsbasierten Usage-Datei zurück (z.B. usage_2026-03.json)"""
+    os.makedirs(_USAGE_BASE_DIR, exist_ok=True)
+    return os.path.join(_USAGE_BASE_DIR, f'usage_{year_month}.json')
+
+def _get_usage_lock(year_month: str) -> str:
+    return _get_usage_file(year_month) + '.lock'
+
+def _migrate_old_usage_data():
+    """Migriert Daten aus der alten /tmp-Datei in monatsbasierte Dateien"""
+    if not os.path.exists(_OLD_USAGE_LOG_FILE):
+        return
+    try:
+        with open(_OLD_USAGE_LOG_FILE, 'r', encoding='utf-8') as f:
+            old_data = json.load(f)
+        entries = old_data.get("entries", [])
+        if not entries:
+            return
+
+        # Einträge nach Monat gruppieren
+        by_month = {}
+        for entry in entries:
+            month = entry.get("date", "")[:7]  # YYYY-MM
+            if not month:
+                month = datetime.now().strftime("%Y-%m")
+            by_month.setdefault(month, []).append(entry)
+
+        os.makedirs(_USAGE_BASE_DIR, exist_ok=True)
+        migrated = 0
+        for month, month_entries in by_month.items():
+            usage_file = _get_usage_file(month)
+            lock = filelock.FileLock(_get_usage_lock(month), timeout=10)
+            with lock:
+                existing = {"entries": []}
+                if os.path.exists(usage_file):
+                    try:
+                        with open(usage_file, 'r', encoding='utf-8') as f:
+                            existing = json.load(f)
+                    except (json.JSONDecodeError, IOError):
+                        existing = {"entries": []}
+
+                # Duplikate vermeiden anhand request_id
+                existing_ids = {e.get("request_id") for e in existing.get("entries", [])}
+                new_entries = [e for e in month_entries if e.get("request_id") not in existing_ids]
+                existing["entries"].extend(new_entries)
+                migrated += len(new_entries)
+
+                with open(usage_file, 'w', encoding='utf-8') as f:
+                    json.dump(existing, f, indent=2, ensure_ascii=False)
+
+        if migrated > 0:
+            logger.info(f"Usage-Migration: {migrated} Einträge aus /tmp in persistenten Speicher migriert")
+        # Alte Datei nach erfolgreicher Migration entfernen
+        os.remove(_OLD_USAGE_LOG_FILE)
+        logger.info("Alte Usage-Datei aus /tmp entfernt")
+    except Exception as e:
+        logger.warning(f"Usage-Migration fehlgeschlagen: {e}")
+
+# Migration beim Start ausführen
+_migrate_old_usage_data()
+
+def log_usage(customer_name: str, request_id: str, file_names: list, file_sizes: list,
+              success: bool, tokens_input: int = 0, tokens_output: int = 0,
+              action: str = None, error_message: str = None,
+              context_id: str = None, context: str = None):
     """
     Loggt die API-Nutzung für Abrechnungszwecke
-    
+
     Parameter:
     - customer_name: Name des Kunden
     - request_id: Eindeutige Request-ID
@@ -70,9 +133,12 @@ def log_usage(customer_name: str, request_id: str, file_names: list, file_sizes:
     - tokens_output: Anzahl der Output-Tokens
     - action: Die ausgeführte Aktion
     - error_message: Fehlermeldung bei Misserfolg
+    - context_id: Optionale ID um zusammenhängende Aktionen zu gruppieren
+    - context: Optionale Beschreibung des Kontexts (z.B. Projektname, Vorgangsname)
     """
     now = datetime.now()
-    
+    year_month = now.strftime("%Y-%m")
+
     usage_entry = {
         "timestamp": now.isoformat(),
         "date": now.strftime("%Y-%m-%d"),
@@ -80,9 +146,11 @@ def log_usage(customer_name: str, request_id: str, file_names: list, file_sizes:
         "request_id": request_id,
         "customer": customer_name,
         "action": action,
+        "context_id": context_id,
+        "context": context,
         "success": success,
         "files": [
-            {"name": name, "size_bytes": size} 
+            {"name": name, "size_bytes": size}
             for name, size in zip(file_names, file_sizes)
         ],
         "total_file_size_bytes": sum(file_sizes),
@@ -93,58 +161,90 @@ def log_usage(customer_name: str, request_id: str, file_names: list, file_sizes:
         },
         "error": error_message
     }
-    
-    # Thread-safe Schreiben mit File Lock
+
+    # Thread-safe Schreiben in monatsbasierte Datei
     try:
-        lock = filelock.FileLock(USAGE_LOCK_FILE, timeout=10)
+        usage_file = _get_usage_file(year_month)
+        lock = filelock.FileLock(_get_usage_lock(year_month), timeout=10)
         with lock:
-            # Existierende Daten laden
             usage_data = {"entries": []}
-            if os.path.exists(USAGE_LOG_FILE):
+            if os.path.exists(usage_file):
                 try:
-                    with open(USAGE_LOG_FILE, 'r', encoding='utf-8') as f:
+                    with open(usage_file, 'r', encoding='utf-8') as f:
                         usage_data = json.load(f)
                 except (json.JSONDecodeError, IOError):
                     usage_data = {"entries": []}
-            
-            # Neuen Eintrag hinzufügen
+
             usage_data["entries"].append(usage_entry)
-            
-            # Speichern
-            with open(USAGE_LOG_FILE, 'w', encoding='utf-8') as f:
+
+            with open(usage_file, 'w', encoding='utf-8') as f:
                 json.dump(usage_data, f, indent=2, ensure_ascii=False)
-        
+
+        ctx_info = f", context_id={context_id}" if context_id else ""
         logger.info(f"[{request_id}] Usage logged: {customer_name}, {len(file_names)} files, "
-                   f"{tokens_input + tokens_output} tokens, success={success}")
+                   f"{tokens_input + tokens_output} tokens, success={success}{ctx_info}")
     except Exception as e:
         logger.error(f"[{request_id}] Failed to log usage: {e}")
 
-def get_usage_summary(customer_name: str = None, start_date: str = None, end_date: str = None) -> dict:
+def _list_usage_months() -> list:
+    """Listet alle verfügbaren Usage-Monate (sortiert)"""
+    if not os.path.isdir(_USAGE_BASE_DIR):
+        return []
+    months = []
+    for f in os.listdir(_USAGE_BASE_DIR):
+        if f.startswith('usage_') and f.endswith('.json') and not f.endswith('.lock'):
+            month = f.replace('usage_', '').replace('.json', '')
+            months.append(month)
+    return sorted(months)
+
+def get_usage_summary(customer_name: str = None, start_date: str = None, end_date: str = None,
+                      context_id: str = None) -> dict:
     """
-    Gibt eine Zusammenfassung der Nutzung zurück
-    
+    Gibt eine Zusammenfassung der Nutzung zurück (monatsübergreifend)
+
     Parameter:
     - customer_name: Optional - Filter nach Kunde
     - start_date: Optional - Startdatum (YYYY-MM-DD)
     - end_date: Optional - Enddatum (YYYY-MM-DD)
+    - context_id: Optional - Filter nach Kontext-ID
     """
     try:
-        if not os.path.exists(USAGE_LOG_FILE):
-            return {"entries": [], "summary": {}}
-        
-        with open(USAGE_LOG_FILE, 'r', encoding='utf-8') as f:
-            usage_data = json.load(f)
-        
-        entries = usage_data.get("entries", [])
-        
+        all_entries = []
+
+        # Relevante Monatsdateien ermitteln
+        available_months = _list_usage_months()
+        if not available_months:
+            return {"entries": [], "summary": {}, "available_months": []}
+
+        # Monatsfilter: nur relevante Dateien laden
+        start_month = start_date[:7] if start_date else None
+        end_month = end_date[:7] if end_date else None
+
+        for month in available_months:
+            if start_month and month < start_month:
+                continue
+            if end_month and month > end_month:
+                continue
+
+            usage_file = _get_usage_file(month)
+            try:
+                with open(usage_file, 'r', encoding='utf-8') as f:
+                    month_data = json.load(f)
+                all_entries.extend(month_data.get("entries", []))
+            except (json.JSONDecodeError, IOError) as e:
+                logger.warning(f"Fehler beim Laden von {usage_file}: {e}")
+
         # Filter anwenden
+        entries = all_entries
         if customer_name:
             entries = [e for e in entries if e.get("customer") == customer_name]
         if start_date:
             entries = [e for e in entries if e.get("date", "") >= start_date]
         if end_date:
             entries = [e for e in entries if e.get("date", "") <= end_date]
-        
+        if context_id:
+            entries = [e for e in entries if e.get("context_id") == context_id]
+
         # Zusammenfassung berechnen
         summary = {}
         for entry in entries:
@@ -159,9 +259,10 @@ def get_usage_summary(customer_name: str = None, start_date: str = None, end_dat
                     "total_tokens_input": 0,
                     "total_tokens_output": 0,
                     "total_tokens": 0,
-                    "by_action": {}
+                    "by_action": {},
+                    "by_context": {}
                 }
-            
+
             s = summary[customer]
             s["total_requests"] += 1
             if entry.get("success"):
@@ -174,15 +275,35 @@ def get_usage_summary(customer_name: str = None, start_date: str = None, end_dat
             s["total_tokens_input"] += tokens.get("input", 0)
             s["total_tokens_output"] += tokens.get("output", 0)
             s["total_tokens"] += tokens.get("total", 0)
-            
+
             # Nach Aktion gruppieren
             action = entry.get("action", "unknown")
             if action not in s["by_action"]:
                 s["by_action"][action] = {"requests": 0, "tokens": 0}
             s["by_action"][action]["requests"] += 1
             s["by_action"][action]["tokens"] += tokens.get("total", 0)
-        
-        return {"entries": entries, "summary": summary}
+
+            # Nach Kontext gruppieren
+            ctx_id = entry.get("context_id")
+            if ctx_id:
+                if ctx_id not in s["by_context"]:
+                    s["by_context"][ctx_id] = {
+                        "context": entry.get("context", ""),
+                        "requests": 0,
+                        "tokens": 0,
+                        "first_seen": entry.get("timestamp", ""),
+                        "last_seen": entry.get("timestamp", "")
+                    }
+                s["by_context"][ctx_id]["requests"] += 1
+                s["by_context"][ctx_id]["tokens"] += tokens.get("total", 0)
+                s["by_context"][ctx_id]["last_seen"] = entry.get("timestamp", "")
+
+        return {
+            "entries": entries,
+            "summary": summary,
+            "available_months": available_months,
+            "total_entries": len(entries)
+        }
     except Exception as e:
         logger.error(f"Failed to get usage summary: {e}")
         return {"error": str(e)}
@@ -793,11 +914,16 @@ def analyze_document_internal(data: dict, request_id: str) -> dict:
     tokens_input = 0
     tokens_output = 0
     
+    context_id = None
+    context = None
+
     try:
         # Basis-Parameter
         api_key = data.get('api_key')
         action = data.get('action')
         user_text = data.get('user_text')
+        context_id = data.get('context_id')
+        context = data.get('context')
         vector_store_ids = data.get('vector_store_ids') or data.get('vector_store_id') or data.get('vectorstoreId') or data.get('vectorStoreId')
         
         # Vector Store IDs normalisieren
@@ -1090,7 +1216,9 @@ def analyze_document_internal(data: dict, request_id: str) -> dict:
             success=True,
             tokens_input=tokens_input,
             tokens_output=tokens_output,
-            action=action
+            action=action,
+            context_id=context_id,
+            context=context
         )
         
         # Ergebnis
@@ -1120,7 +1248,9 @@ def analyze_document_internal(data: dict, request_id: str) -> dict:
             tokens_input=tokens_input,
             tokens_output=tokens_output,
             action=action,
-            error_message=str(e)
+            error_message=str(e),
+            context_id=context_id,
+            context=context
         )
         raise  # Exception weiterwerfen
         
@@ -1146,8 +1276,12 @@ def analyze_file():
             {"file_content": "base64-...", "file_name": "datei2.pdf"}
         ],
         "vector_store_id": "vs_...",  # Optional: einzelner Vector Store
-        "vector_store_ids": ["vs_...", "vs_..."]  # Optional: mehrere Vector Stores
-        
+        "vector_store_ids": ["vs_...", "vs_..."],  # Optional: mehrere Vector Stores
+
+        # Kontext-Tracking (optional, für zusammenhängende Aktionen):
+        "context_id": "projekt-123",  # ID um zusammenhängende Aktionen zu gruppieren
+        "context": "Angebot Projekt XY"  # Beschreibung des Kontexts
+
         # Rückwärtskompatibilität (einzelne Datei):
         # "file_content": "base64-encoded-file-content",
         # "file_name": "dateiname.pdf"
@@ -1406,22 +1540,29 @@ def get_usage():
     - customer: Filtert nach Kundenname
     - start_date: Startdatum (YYYY-MM-DD)
     - end_date: Enddatum (YYYY-MM-DD)
+    - context_id: Filtert nach Kontext-ID (für zusammenhängende Aktionen)
     - format: "summary" (nur Zusammenfassung) oder "full" (mit allen Einträgen)
-    
-    Beispiel: /usage?customer=Fameline&start_date=2026-01-01&end_date=2026-01-31&format=summary
+
+    Daten werden persistent gespeichert (monatsbasiert) und überleben Redeployments.
+
+    Beispiel: /usage?customer=Fameline&start_date=2026-01-01&end_date=2026-03-31&format=summary
     """
     customer = request.args.get('customer')
     start_date = request.args.get('start_date')
     end_date = request.args.get('end_date')
+    context_id = request.args.get('context_id')
     output_format = request.args.get('format', 'full')
-    
-    logger.info(f"Usage-Abfrage: customer={customer}, start={start_date}, end={end_date}, format={output_format}")
-    
-    result = get_usage_summary(customer_name=customer, start_date=start_date, end_date=end_date)
-    
+
+    logger.info(f"Usage-Abfrage: customer={customer}, start={start_date}, end={end_date}, "
+               f"context_id={context_id}, format={output_format}")
+
+    result = get_usage_summary(customer_name=customer, start_date=start_date, end_date=end_date,
+                               context_id=context_id)
+
     if output_format == 'summary':
         # Nur Zusammenfassung ohne Einzeleinträge
-        return jsonify({"summary": result.get("summary", {})}), 200
+        return jsonify({"summary": result.get("summary", {}),
+                        "available_months": result.get("available_months", [])}), 200
     else:
         return jsonify(result), 200
 
@@ -1440,19 +1581,22 @@ def export_usage():
     customer = request.args.get('customer')
     start_date = request.args.get('start_date')
     end_date = request.args.get('end_date')
-    
-    result = get_usage_summary(customer_name=customer, start_date=start_date, end_date=end_date)
+    context_id = request.args.get('context_id')
+
+    result = get_usage_summary(customer_name=customer, start_date=start_date, end_date=end_date,
+                               context_id=context_id)
     entries = result.get("entries", [])
-    
+
     # CSV erstellen
-    csv_lines = ["Datum,Uhrzeit,Kunde,Aktion,Erfolg,Dateien,Dateigröße (Bytes),Tokens Input,Tokens Output,Tokens Gesamt,Fehler"]
-    
+    csv_lines = ["Datum,Uhrzeit,Kunde,Aktion,Kontext-ID,Kontext,Erfolg,Dateien,Dateigröße (Bytes),Tokens Input,Tokens Output,Tokens Gesamt,Fehler"]
+
     for entry in entries:
         files_str = "; ".join([f.get("name", "") for f in entry.get("files", [])])
         tokens = entry.get("tokens", {})
         csv_lines.append(
             f'{entry.get("date", "")},{entry.get("time", "")},"{entry.get("customer", "")}",'
-            f'"{entry.get("action", "")}",{entry.get("success", False)},"{files_str}",'
+            f'"{entry.get("action", "")}","{entry.get("context_id", "") or ""}",'
+            f'"{entry.get("context", "") or ""}",{entry.get("success", False)},"{files_str}",'
             f'{entry.get("total_file_size_bytes", 0)},{tokens.get("input", 0)},'
             f'{tokens.get("output", 0)},{tokens.get("total", 0)},"{entry.get("error", "") or ""}"'
         )
